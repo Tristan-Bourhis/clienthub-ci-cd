@@ -9,4 +9,4 @@ def add(n1: int, n2: int) -> int:
 
 
 if __name__ == "__main__":
-    add("2", 2)
+    add(2, 2)
