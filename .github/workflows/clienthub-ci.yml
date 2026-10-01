@@ -1,0 +1,44 @@
+name: ClientHub CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: clienthub
+    env:
+      COMPOSE_PROJECT_NAME: clienthub-ci
+      DB_NAME: clienthub
+      DB_USER: clienthub
+      DB_PASSWORD: ci-clienthub-test-only
+      MYSQL_ROOT_PASSWORD: ci-root-test-only
+    steps:
+      - name: Récupérer le code
+        uses: actions/checkout@v4
+      - name: Installer Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Vérifier la configuration Compose
+        run: docker compose config --quiet
+      - name: Construire et démarrer ClientHub
+        run: docker compose up -d --build --wait --wait-timeout 180
+      - name: Tester l’API, MySQL et le portail Nginx
+        run: python tests/check_http.py
+      - name: Afficher les diagnostics
+        if: always()
+        run: |
+          docker compose ps -a
+          docker compose logs --no-color --tail=200
+      - name: Nettoyer l’environnement CI
+        if: always()
+        run: docker compose down --volumes --remove-orphans
