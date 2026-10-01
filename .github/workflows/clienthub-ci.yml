@@ -43,8 +43,9 @@ jobs:
       - name: Vérifier le healthpoint de l’image
         run: |
           docker run -d --name clienthub-smoke -p 127.0.0.1:5001:5000 clienthub-api:local
-          curl --fail --silent --show-error --retry 15 --retry-connrefused --retry-delay 2 --max-time 5 \
-            http://127.0.0.1:5001/health | python -c 'import json, sys; assert json.load(sys.stdin) == {"status": "ok"}'
+          curl --fail --silent --show-error --retry 15 --retry-all-errors --retry-delay 2 --max-time 5 \
+            --output "$RUNNER_TEMP/health.json" http://127.0.0.1:5001/health
+          python -c 'import json, sys; assert json.load(open(sys.argv[1])) == {"status": "ok"}' "$RUNNER_TEMP/health.json"
       - name: Démarrer les services pour les tests d’intégration
         run: docker compose up -d --no-build --wait --wait-timeout 180
       - name: Tester l’API, MySQL et le portail Nginx
