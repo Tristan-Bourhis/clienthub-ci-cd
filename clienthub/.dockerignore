@@ -3,7 +3,6 @@
 .git
 __pycache__
 .venv
-site
 tests
 README.md
 verification.md

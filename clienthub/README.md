@@ -2,15 +2,15 @@
 
 ## Intégration continue
 
-Le workflow `../.github/workflows/clienthub-ci.yml` s'exécute à chaque push,
-sur les pull requests et manuellement depuis GitHub Actions. Il récupère le
-commit, installe les dépendances et exécute les tests unitaires avant de
-construire l'image. Il lance ensuite un conteneur autonome et vérifie
-`/health`, puis exécute les cinq tests HTTP avec Nginx et une base MySQL vierge.
+Le workflow `../.github/workflows/clienthub-ci.yml` enchaîne quatre jobs :
+tests unitaires → tests E2E HTTP avec MySQL → build/push Docker Hub →
+déploiement SSH sur Azure au port **8007**, suivi d'un contrôle public et
+d'une capture du portail. Le build n'a lieu qu'après réussite des deux suites.
 
 Sur `main` uniquement (hors pull request), il se connecte à Docker Hub et
 publie cette même image sous les tags `latest` et le SHA complet du commit.
-Les autres branches testent l'application sans publier. Les logs sont
+La branche de préparation `clienthub-azure` et les pull requests vers `main`
+testent l'application sans publier ni déployer. Les logs sont
 affichés et les ressources CI sont nettoyées même en cas d'échec.
 
 Configurer dans GitHub, Settings → Secrets and variables → Actions :
@@ -24,16 +24,20 @@ automatiquement le préfixe `DOCKERHUB_USERNAME/`.
 
 Créer le dépôt correspondant dans Docker Hub. Ne jamais commiter le jeton.
 Sur `main`, des paramètres manquants font explicitement échouer la publication.
-Les identifiants de la base de test sont définis dans le workflow ; aucun
+Les mots de passe de la base de test sont générés à chaque exécution ; aucun
 fichier `.env` personnel n'est nécessaire.
+
+Voir [le guide Azure](deploy/README.md) pour les secrets SSH, les prérequis VM,
+l'idempotence et la récupération de la capture. Le déploiement Azure reste
+à vérifier après configuration des secrets ; aucune VM n'a encore été déployée.
 
 Application locale composée d'une API Flask, d'un portail Nginx et de MySQL 8.4.
 
 ## Démarrer
 
 Depuis le dossier `clienthub`, si `.env` n'existe pas encore, copier
-`.env.example` vers `.env`. Ses mots de passe sont destinés à la démonstration
-locale. Puis lancer :
+`.env.example` vers `.env` et remplacer les valeurs `CHANGE_ME` par des mots
+de passe aléatoires. Puis lancer :
 
 ```bash
 docker compose up -d --build --wait

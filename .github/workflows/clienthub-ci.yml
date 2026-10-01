@@ -1,92 +1,163 @@
 name: ClientHub CI/CD
-
 on:
   push:
+    branches: [main, clienthub-azure]
   pull_request:
+    branches: [main]
   workflow_dispatch:
-
 permissions:
   contents: read
-
 concurrency:
   group: clienthub-${{ github.ref }}
   cancel-in-progress: false
-
+defaults:
+  run:
+    shell: bash
+    working-directory: clienthub
 jobs:
-  integration:
+  unit:
+    name: Unit tests
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    defaults:
-      run:
-        working-directory: clienthub
-    env:
-      COMPOSE_PROJECT_NAME: clienthub-ci
-      DB_NAME: clienthub
-      DB_USER: clienthub
-      DB_PASSWORD: ci-clienthub-test-only
-      MYSQL_ROOT_PASSWORD: ci-root-test-only
+    timeout-minutes: 10
     steps:
-      - name: Récupérer le code
-        uses: actions/checkout@v4
-      - name: Installer Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Installer les dépendances et exécuter les tests
+      - run: python -m pip install -r requirements.txt
+      - run: python -m unittest discover -s tests -p 'test_*.py' -v
+  e2e:
+    name: E2E tests
+    needs: unit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DB_HOST: 127.0.0.1
+      DB_PORT: '3307'
+      DB_NAME: clienthub
+      DB_USER: clienthub
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements.txt
+      - name: Démarrer MySQL et initialiser les données
         run: |
-          python -m pip install -r requirements.txt
-          python -m unittest discover -s tests -p 'test_*.py' -v
-      - name: Vérifier la configuration Compose
-        run: docker compose config --quiet
-      - name: Construire l’image de l’API
-        run: docker build --tag clienthub-api:local .
-      - name: Vérifier le healthpoint de l’image
+          password=$(openssl rand -hex 24)
+          echo "::add-mask::$password"
+          echo "DB_PASSWORD=$password" >> "$GITHUB_ENV"
+          docker run -d --name clienthub-e2e-db -p 127.0.0.1:3307:3306 \
+            -e MYSQL_DATABASE="$DB_NAME" -e MYSQL_USER="$DB_USER" \
+            -e MYSQL_PASSWORD="$password" -e MYSQL_ROOT_PASSWORD="$password" \
+            -v "$PWD/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro" mysql:8.4
+          for attempt in {1..60}; do
+            if docker exec -e MYSQL_PWD="$password" clienthub-e2e-db \
+              mysql --protocol=tcp -h 127.0.0.1 -u"$DB_USER" "$DB_NAME" -e 'SELECT COUNT(*) FROM clients'; then
+              exit 0
+            fi
+            sleep 2
+          done
+          exit 1
+      - name: Parcours HTTP réels
+        run: python tests/run_e2e.py
+      - name: Logs et nettoyage
+        if: always()
+        run: |
+          docker logs clienthub-e2e-db || true
+          docker rm -fv clienthub-e2e-db || true
+  publish:
+    name: Build and push
+    needs: [unit, e2e]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DOCKERHUB_IMAGE: ${{ vars.DOCKERHUB_IMAGE || secrets.DOCKERHUB_IMAGE }}
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: docker build -t clienthub-api:local .
+      - name: Healthcheck de l’image finale
         run: |
           docker run -d --name clienthub-smoke -p 127.0.0.1:5001:5000 clienthub-api:local
           curl --fail --silent --show-error --retry 15 --retry-all-errors --retry-delay 2 --max-time 5 \
-            --output "$RUNNER_TEMP/health.json" http://127.0.0.1:5001/health
-          python -c 'import json, sys; assert json.load(open(sys.argv[1])) == {"status": "ok"}' "$RUNNER_TEMP/health.json"
-      - name: Démarrer les services pour les tests d’intégration
-        run: docker compose up -d --no-build --wait --wait-timeout 180
-      - name: Tester l’API, MySQL et le portail Nginx
-        run: python tests/check_http.py
-      - name: Vérifier les paramètres de publication
+            -o "$RUNNER_TEMP/health.json" http://127.0.0.1:5001/health
+          python3 -c 'import json,sys; assert json.load(open(sys.argv[1])) == {"status":"ok"}' "$RUNNER_TEMP/health.json"
+      - name: Vérifier la configuration Azure et son idempotence sur le runner
+        run: bash tests/check_deploy.sh
+      - uses: docker/login-action@v3
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-        env:
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-          DOCKERHUB_IMAGE: ${{ vars.DOCKERHUB_IMAGE || secrets.DOCKERHUB_IMAGE }}
-        run: |
-          test -n "$DOCKERHUB_USERNAME" || { echo 'Secret DOCKERHUB_USERNAME manquant'; exit 1; }
-          test -n "$DOCKERHUB_TOKEN" || { echo 'Secret DOCKERHUB_TOKEN manquant'; exit 1; }
-          test -n "$DOCKERHUB_IMAGE" || { echo 'Variable ou secret DOCKERHUB_IMAGE manquant (compte/clienthub)'; exit 1; }
-      - name: Se connecter à Docker Hub
-        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-        uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: Publier l’image testée avec les tags SHA et latest
+      - name: Push SHA et latest
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-        env:
-          DOCKERHUB_IMAGE: ${{ vars.DOCKERHUB_IMAGE || secrets.DOCKERHUB_IMAGE }}
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
         run: |
-          if [[ "$DOCKERHUB_IMAGE" != */* ]]; then
-            DOCKERHUB_IMAGE="$DOCKERHUB_USERNAME/$DOCKERHUB_IMAGE"
-          fi
+          test -n "$DOCKERHUB_IMAGE"
+          if [[ "$DOCKERHUB_IMAGE" != */* ]]; then DOCKERHUB_IMAGE="$DOCKERHUB_USERNAME/$DOCKERHUB_IMAGE"; fi
           docker tag clienthub-api:local "$DOCKERHUB_IMAGE:$GITHUB_SHA"
           docker tag clienthub-api:local "$DOCKERHUB_IMAGE:latest"
           docker push "$DOCKERHUB_IMAGE:$GITHUB_SHA"
           docker push "$DOCKERHUB_IMAGE:latest"
-      - name: Afficher les diagnostics
+      - name: Logs et nettoyage
         if: always()
         run: |
-          docker compose ps -a
-          docker compose logs --no-color --tail=200
-          docker logs clienthub-smoke 2>&1 || true
-      - name: Nettoyer l’environnement CI
-        if: always()
-        run: |
+          docker logs clienthub-smoke || true
           docker rm -f clienthub-smoke || true
-          docker compose down --volumes --remove-orphans
+  deploy:
+    name: Deploy Azure port 8007
+    needs: publish
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      AZURE_HOST: ${{ secrets.AZURE_HOST }}
+      AZURE_USER: ${{ secrets.AZURE_USER }}
+      AZURE_SSH_KEY: ${{ secrets.AZURE_SSH_KEY }}
+      AZURE_KNOWN_HOSTS: ${{ secrets.AZURE_KNOWN_HOSTS }}
+      DOCKERHUB_IMAGE: ${{ vars.DOCKERHUB_IMAGE || secrets.DOCKERHUB_IMAGE }}
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Préparer SSH
+        run: |
+          for name in AZURE_HOST AZURE_USER AZURE_SSH_KEY AZURE_KNOWN_HOSTS; do
+            test -n "${!name}" || { echo "Secret $name manquant"; exit 1; }
+          done
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          printf '%s\n' "$AZURE_SSH_KEY" > "$HOME/.ssh/clienthub_key"
+          printf '%s\n' "$AZURE_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/clienthub_key" "$HOME/.ssh/known_hosts"
+      - name: Transférer et déployer le SHA exact
+        run: |
+          if [[ "$DOCKERHUB_IMAGE" != */* ]]; then DOCKERHUB_IMAGE="$DOCKERHUB_USERNAME/$DOCKERHUB_IMAGE"; fi
+          [[ "$DOCKERHUB_IMAGE" =~ ^[a-z0-9._/-]+$ ]]
+          [[ "$DOCKERHUB_USERNAME" =~ ^[a-z0-9_-]+$ ]]
+          remote="$AZURE_USER@$AZURE_HOST"
+          options=(-i "$HOME/.ssh/clienthub_key" -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15)
+          ssh "${options[@]}" "$remote" 'mkdir -p "$HOME/clienthub-8007"'
+          scp "${options[@]}" deploy/compose.yml deploy/deploy.sh init.sql "$remote:clienthub-8007/"
+          printf '%s' "$DOCKERHUB_TOKEN" | ssh "${options[@]}" "$remote" \
+            "docker --config \"\$HOME/clienthub-8007/.docker\" login -u '$DOCKERHUB_USERNAME' --password-stdin"
+          ssh "${options[@]}" "$remote" \
+            "export DOCKER_CONFIG=\"\$HOME/clienthub-8007/.docker\"; trap 'docker logout >/dev/null 2>&1' EXIT; bash \"\$HOME/clienthub-8007/deploy.sh\" '$DOCKERHUB_IMAGE' '$GITHUB_SHA'"
+      - name: Vérification publique HTTP
+        run: |
+          curl --fail --silent --show-error --retry 15 --retry-all-errors --retry-delay 2 --max-time 5 \
+            -o "$RUNNER_TEMP/health.json" "http://$AZURE_HOST:8007/health"
+          python3 -c 'import json,sys; assert json.load(open(sys.argv[1])) == {"status":"ok"}' "$RUNNER_TEMP/health.json"
+          API_URL="http://$AZURE_HOST:8007" WEB_URL="http://$AZURE_HOST:8007" python3 tests/check_http.py
+      - name: Capture du portail Azure
+        run: |
+          npm exec --yes --package=@playwright/test -- playwright install --with-deps chromium
+          npm exec --yes --package=@playwright/test -- playwright screenshot --browser chromium "http://$AZURE_HOST:8007/" "$RUNNER_TEMP/clienthub-azure.png"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: clienthub-azure-${{ github.sha }}
+          path: ${{ runner.temp }}/clienthub-azure.png
+      - name: Nettoyer la clé SSH locale
+        if: always()
+        run: rm -f "$HOME/.ssh/clienthub_key"

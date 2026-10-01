@@ -1,9 +1,14 @@
 import os
 
 import pymysql
-from flask import Flask, jsonify
+from flask import Flask, jsonify, send_from_directory
 
 app = Flask(__name__)
+
+
+@app.get("/")
+def portal():
+    return send_from_directory("site", "index.html")
 
 
 def connect_db():
