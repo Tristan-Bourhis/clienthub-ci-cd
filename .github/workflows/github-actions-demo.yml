@@ -1,9 +1,20 @@
-name: GitHub Actions Demo
-on: [push]
+name: Python CI
+on: [push, workflow_dispatch]
+permissions:
+  contents: read
 jobs:
-  Explore-GitHub-Actions:
+  checks:
     runs-on: ubuntu-latest
     steps:
-      - run: echo "🎉 The job was automatically triggered by a ${{ github.event_name }} event."
-      - run: echo "🐧 This job is now running on a ${{ runner.os }} server hosted by GitHub!"
-      - run: echo "🔎 The name of your branch is ${{ github.ref }} and your repository is ${{ github.repository }}."
+      - name: Récupérer le code
+        uses: actions/checkout@v4
+      - name: Installer Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Installer pytest et mypy
+        run: python -m pip install -r requirements-dev.txt
+      - name: Vérifier le typage
+        run: python -m mypy --strict lib.py test_lib.py
+      - name: Lancer les tests unitaires
+        run: python -m pytest -v test_lib.py
