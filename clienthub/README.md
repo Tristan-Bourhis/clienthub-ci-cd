@@ -17,7 +17,7 @@ Configurer dans GitHub, Settings → Secrets and variables → Actions :
 
 - Secret `DOCKERHUB_USERNAME` : identifiant Docker Hub.
 - Secret `DOCKERHUB_TOKEN` : jeton Docker Hub avec droit d'écriture.
-- Variable `DOCKERHUB_IMAGE` : nom complet, par exemple `moncompte/clienthub`.
+- Variable ou secret `DOCKERHUB_IMAGE` : nom complet, par exemple `moncompte/clienthub`.
 
 Créer le dépôt correspondant dans Docker Hub. Ne jamais commiter le jeton.
 Sur `main`, des paramètres manquants font explicitement échouer la publication.

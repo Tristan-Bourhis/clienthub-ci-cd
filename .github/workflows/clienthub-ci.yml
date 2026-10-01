@@ -55,11 +55,11 @@ jobs:
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-          DOCKERHUB_IMAGE: ${{ vars.DOCKERHUB_IMAGE }}
+          DOCKERHUB_IMAGE: ${{ vars.DOCKERHUB_IMAGE || secrets.DOCKERHUB_IMAGE }}
         run: |
           test -n "$DOCKERHUB_USERNAME" || { echo 'Secret DOCKERHUB_USERNAME manquant'; exit 1; }
           test -n "$DOCKERHUB_TOKEN" || { echo 'Secret DOCKERHUB_TOKEN manquant'; exit 1; }
-          test -n "$DOCKERHUB_IMAGE" || { echo 'Variable DOCKERHUB_IMAGE manquante (compte/clienthub)'; exit 1; }
+          test -n "$DOCKERHUB_IMAGE" || { echo 'Variable ou secret DOCKERHUB_IMAGE manquant (compte/clienthub)'; exit 1; }
       - name: Se connecter à Docker Hub
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         uses: docker/login-action@v3
@@ -69,7 +69,7 @@ jobs:
       - name: Publier l’image testée avec les tags SHA et latest
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         env:
-          DOCKERHUB_IMAGE: ${{ vars.DOCKERHUB_IMAGE }}
+          DOCKERHUB_IMAGE: ${{ vars.DOCKERHUB_IMAGE || secrets.DOCKERHUB_IMAGE }}
         run: |
           docker tag clienthub-api:local "$DOCKERHUB_IMAGE:$GITHUB_SHA"
           docker tag clienthub-api:local "$DOCKERHUB_IMAGE:latest"
