@@ -27,6 +27,11 @@ def health():
     return jsonify(status="ok")
 
 
+@app.get("/who")
+def who():
+    return app.response_class("Tristan Bourhis", mimetype="text/plain")
+
+
 @app.get("/clients")
 def clients():
     try:

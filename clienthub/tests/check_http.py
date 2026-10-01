@@ -6,6 +6,12 @@ from urllib.request import urlopen
 
 
 class ClientHubTests(unittest.TestCase):
+    def test_who(self):
+        with urlopen("http://127.0.0.1:5000/who", timeout=10) as response:
+            self.assertEqual(response.status, 200)
+            self.assertEqual(response.read().decode(), "Tristan Bourhis")
+            self.assertEqual(response.headers.get_content_type(), "text/plain")
+
     def test_health(self):
         with urlopen("http://127.0.0.1:5000/health", timeout=10) as response:
             self.assertEqual(response.status, 200)

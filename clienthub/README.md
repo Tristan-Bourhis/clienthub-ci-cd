@@ -5,7 +5,7 @@
 Le workflow `../.github/workflows/clienthub-ci.yml` s'exécute à chaque push,
 sur les pull requests et manuellement depuis GitHub Actions. Il construit
 les images, initialise une base MySQL vierge, attend la disponibilité des
-services et lance les quatre tests HTTP. Les logs sont affichés et les
+services et lance les cinq tests HTTP. Les logs sont affichés et les
 conteneurs et volumes CI sont supprimés même si un test échoue.
 Les identifiants éphémères de test sont définis dans le workflow ; aucun
 fichier `.env` personnel ni secret GitHub n'est nécessaire.
@@ -26,6 +26,7 @@ python3 tests/check_http.py
 
 - Portail : http://localhost:8080/
 - Santé de l'API : http://localhost:5000/health
+- Identité : http://localhost:5000/who (texte `Tristan Bourhis`, HTTP 200)
 - Clients MySQL : http://localhost:5000/clients
 
 Le Dockerfile installe Python, Flask, PyMySQL et Gunicorn, copie `app.py`, expose
@@ -71,7 +72,7 @@ curl http://localhost:5000/clients
 docker compose logs --tail=30 api db
 ```
 
-Les tests HTTP automatisés couvrent `/health`, les trois clients initiaux,
+Les tests HTTP automatisés couvrent `/who`, `/health`, les trois clients initiaux,
 la page Nginx et une route inexistante. `verification.md` consigne les essais
 réels, y compris la modification SQL visible via l'API et la persistance.
 
