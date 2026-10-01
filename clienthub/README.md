@@ -3,12 +3,26 @@
 ## Intégration continue
 
 Le workflow `../.github/workflows/clienthub-ci.yml` s'exécute à chaque push,
-sur les pull requests et manuellement depuis GitHub Actions. Il construit
-les images, initialise une base MySQL vierge, attend la disponibilité des
-services et lance les cinq tests HTTP. Les logs sont affichés et les
-conteneurs et volumes CI sont supprimés même si un test échoue.
-Les identifiants éphémères de test sont définis dans le workflow ; aucun
-fichier `.env` personnel ni secret GitHub n'est nécessaire.
+sur les pull requests et manuellement depuis GitHub Actions. Il récupère le
+commit, installe les dépendances et exécute les tests unitaires avant de
+construire l'image. Il lance ensuite un conteneur autonome et vérifie
+`/health`, puis exécute les cinq tests HTTP avec Nginx et une base MySQL vierge.
+
+Sur `main` uniquement (hors pull request), il se connecte à Docker Hub et
+publie cette même image sous les tags `latest` et le SHA complet du commit.
+Les autres branches testent l'application sans publier. Les logs sont
+affichés et les ressources CI sont nettoyées même en cas d'échec.
+
+Configurer dans GitHub, Settings → Secrets and variables → Actions :
+
+- Secret `DOCKERHUB_USERNAME` : identifiant Docker Hub.
+- Secret `DOCKERHUB_TOKEN` : jeton Docker Hub avec droit d'écriture.
+- Variable ou secret `DOCKERHUB_IMAGE` : nom complet, par exemple `moncompte/clienthub`.
+
+Créer le dépôt correspondant dans Docker Hub. Ne jamais commiter le jeton.
+Sur `main`, des paramètres manquants font explicitement échouer la publication.
+Les identifiants de la base de test sont définis dans le workflow ; aucun
+fichier `.env` personnel n'est nécessaire.
 
 Application locale composée d'une API Flask, d'un portail Nginx et de MySQL 8.4.
 
