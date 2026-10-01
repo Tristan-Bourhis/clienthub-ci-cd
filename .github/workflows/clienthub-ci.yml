@@ -70,7 +70,11 @@ jobs:
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         env:
           DOCKERHUB_IMAGE: ${{ vars.DOCKERHUB_IMAGE || secrets.DOCKERHUB_IMAGE }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
         run: |
+          if [[ "$DOCKERHUB_IMAGE" != */* ]]; then
+            DOCKERHUB_IMAGE="$DOCKERHUB_USERNAME/$DOCKERHUB_IMAGE"
+          fi
           docker tag clienthub-api:local "$DOCKERHUB_IMAGE:$GITHUB_SHA"
           docker tag clienthub-api:local "$DOCKERHUB_IMAGE:latest"
           docker push "$DOCKERHUB_IMAGE:$GITHUB_SHA"

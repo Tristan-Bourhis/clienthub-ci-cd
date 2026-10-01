@@ -19,6 +19,9 @@ Configurer dans GitHub, Settings → Secrets and variables → Actions :
 - Secret `DOCKERHUB_TOKEN` : jeton Docker Hub avec droit d'écriture.
 - Variable ou secret `DOCKERHUB_IMAGE` : nom complet, par exemple `moncompte/clienthub`.
 
+Un nom simple comme `clienthub` est également accepté : le workflow ajoute
+automatiquement le préfixe `DOCKERHUB_USERNAME/`.
+
 Créer le dépôt correspondant dans Docker Hub. Ne jamais commiter le jeton.
 Sur `main`, des paramètres manquants font explicitement échouer la publication.
 Les identifiants de la base de test sont définis dans le workflow ; aucun
